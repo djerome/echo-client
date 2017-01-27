@@ -13,14 +13,22 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 
 # Initializations
-sleep_time = 5
-test_period = 60
-server_host = 'cranberry'
-server_port = 10000
+# number of tries and time between tries in a single attempt
+try_sleep_time = 1
 num_tries = 5
+# number of attempts and time between attempts before restarting network interface
+attempt_sleep_time = 15
+num_attempts = 3
+# host and port where echo server is running
+host = 'cranberry'
+port = 10000
+server_address = (host, port)
+# message to be echo'd between the client and server
 message_sent = socket.gethostname()
+# number of bytes to receive from server in a single chunk
 receive_chunk = 16
 
+# Setup Logging
 # logging constants
 log_file = "/var/log/conn_test/conn_test.log"
 log_format = "%(asctime)s: %(message)s"
@@ -46,95 +54,122 @@ logger.addHandler(fh)
 # log program restart
 logger.info('RESTART: ' + os.path.basename(__file__))
 
+# Main loop
 while True:
 
-	# Create a TCP/IP socket
-	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	# attempt num_attempts before restarting interface
+	interface_OK = False
+	for i in range(num_attempts):
+		print 'Attempt # ' + str(i)
 
-	# Connect the socket to the port where the server is listening
-	server_address = (server_host, server_port)
-	print('Trying to connect to {} port {}'.format(*server_address))
+		# Create a TCP/IP socket
+		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-	# Try num_tries times to connect to server
-	connect_OK = False
-	for i in range(num_tries):
-		print 'Try # ' + str(i)
-		try:
-			sock.connect(server_address)
-			connect_OK = True
-			break
+		# Connect the socket to the port where the server is listening
+		print('Trying to connect to {} port {} ...'.format(*server_address))
 
-		except IOError as e:
-			print "I/O error({0}): {1}".format(e.errno, e.strerror)
-			print "Unable to connect"
-			part1 = 'Unable to connect to {}, port {}'.format(*server_address)
-			part2 = '; I/O error({0}): {1}'.format(e.errno, e.strerror)
-			error_msg = part1 + part2
-			logger.info(error_msg)
-			time.sleep(sleep_time)
-
-	if connect_OK:
-		print "Connection OK, trying to send data"
-
-		send_OK = False
-		for i in range(num_tries):
-			print 'Try # ' + str(i)
+		# Try num_tries times to connect to server
+		connect_OK = False
+		for j in range(num_tries):
+			print 'Try # ' + str(j)
 			try:
-
-				# Send message
-				sock.sendall(message_sent)
-				send_OK = True
+				# connect to server
+				sock.connect(server_address)
+				connect_OK = True
+				print "Connection OK"
+				# break out of connect loop
 				break
 
 			except IOError as e:
-				print "I/O error({0}): {1}".format(e.errno, e.strerror)
-				print "Unable to send"
-				part1 = 'Unable to send data to {}, port {}'.format(*server_address)
-				part2 = '; I/O error({0}): {1}'.format(e.errno, e.strerror)
-				error_msg = part1 + part2
+				error_msg = 'Unable to connect to {0}, port {1}; I/O error({2}): {3}'.format(host, port, e.errno, e.strerror)
 				logger.info(error_msg)
-				time.sleep(sleep_time)
+				print(error_msg)
+				time.sleep(try_sleep_time)
 
-		if send_OK:
-			print "Data Sent OK, trying to receive data"
+		# end of connect loop
+		if connect_OK:
+			print "Trying to send data ..."
 
-			receive_OK = False
-			for i in range(num_tries):
-				print 'Try # ' + str(i)
-				amount_received = 0
-				amount_expected = len(message_sent)
-				message_recd = ''
-
+			# Try num_tries times to send message to server
+			send_OK = False
+			for j in range(num_tries):
+				print 'Try # ' + str(j)
 				try:
-					# Look for the response
-					while amount_received < amount_expected:
-						data = sock.recv(receive_chunk)
-						message_recd += data
-						amount_received += len(data)
-						print 'Received: ' + data
-
-					if not(cmp(message_sent, message_recd)):
-						receive_OK = True
-						print 'Received OK'
-					else:
-						logger.info('INCOMPLETE message received')
+					# send message
+					sock.sendall(message_sent)
+					send_OK = True
+					print "Data sent OK"
+					# break out of send loop
 					break
 
 				except IOError as e:
-					print "I/O error({0}): {1}".format(e.errno, e.strerror)
-					print "Unable to receive"
-					part1 = 'Unable to receive data from {}, port {}'.format(*server_address)
-					part2 = '; I/O error({0}): {1}'.format(e.errno, e.strerror)
-					error_msg = part1 + part2
+					error_msg = 'Unable to send data to {0}, port {1}; I/O error({2}): {3}'.format(host, port, e.errno, e.strerror)
 					logger.info(error_msg)
-					time.sleep(sleep_time)
+					print(error_msg)
+					time.sleep(try_sleep_time)
+
+			# end of send loop
+			if send_OK:
+				print "Trying to receive data ..."
+
+				# Try num_tries times to receive message from server
+				receive_OK = False
+				for j in range(num_tries):
+					print 'Try # ' + str(j)
+					amount_received = 0
+					amount_expected = len(message_sent)
+					message_recd = ''
+
+					try:
+						# receive message - look for the response and continue receiving data until finished
+						while amount_received < amount_expected:
+							data = sock.recv(receive_chunk)
+							message_recd += data
+							amount_received += len(data)
+							print 'Received: ' + data
+
+						# Also check if message received is same as message sent
+						if not(cmp(message_sent, message_recd)):
+							receive_OK = True
+							print "Data received OK"
+							# break out of receive loop
+							break
+						else:
+							print 'Data Received is different from data sent'
+							logger.info('INCOMPLETE message received')
+
+					except IOError as e:
+						error_msg = 'Unable to receive data from {0}, port {1}; I/O error({2}): {3}'.format(host, port, e.errno, e.strerror)
+						logger.info(error_msg)
+						print(error_msg)
+						time.sleep(try_sleep_time)
+
+				# end of receive loop
+				if receive_OK:
+					interface_OK = True
+					# break out of attempt loop
+					break
+				else:
+					print "Data NOT received OK"
+
+			else:
+				print "Data NOT Sent OK, not receiving data"
 
 		else:
-			print "Data NOT Sent OK, not receiving data"
+			print "Connection NOT OK, not sending data"
 
+		# cleanup and sleep before next attempt
+		print('Closing socket\n')
+		sock.close()
+		time.sleep(attempt_sleep_time)
+
+	# end of attempt loop
+	if interface_OK:
+		# cleanup and sleep before starting attempts again
+		print "Interface OK"
+		print('Closing socket\n')
+		sock.close()
+		time.sleep(attempt_sleep_time)
 	else:
-		print "Connection NOT OK, not sending data"
-
-	print('closing socket')
-	sock.close()
-	time.sleep(test_period)
+		print "Restarting Interface\n"
+		logger.info('Restarting Network Interface')
