@@ -21,7 +21,7 @@ max_tries = 5
 attempt_sleep_time = 15
 max_attempts = 3
 # wait time between tests
-wait_time = 120
+wait_time = 300
 # host and port where echo server is running
 host = 'cranberry'
 port = 10000
